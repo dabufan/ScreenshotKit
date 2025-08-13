@@ -15,7 +15,7 @@ class GlobalShortcutMonitor {
         self.shortcutHandler = handler
         
         var hotKeyID = EventHotKeyID()
-        hotKeyID.signature = OSType(fourCharCodeFrom: "SSKT")
+        hotKeyID.signature = fourCharCodeFrom("SSKT")
         hotKeyID.id = 1
         
         let modifiers = UInt32(shortcut.modifiers.carbonFlags)
