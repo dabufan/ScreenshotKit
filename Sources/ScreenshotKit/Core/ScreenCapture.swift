@@ -10,7 +10,7 @@ public class ScreenCapture {
     /// 捕获整个屏幕
     /// - Returns: 屏幕截图
     public static func captureScreen() throws -> NSImage {
-        guard let displayID = CGMainDisplayID() as CGDirectDisplayID?,
+        guard let displayID = CGMainDisplayID(),
               let cgImage = CGDisplayCreateImage(displayID) else {
             throw ScreenshotError.captureFailure(NSError(domain: "ScreenCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to capture screen"]))
         }
