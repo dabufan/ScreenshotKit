@@ -98,7 +98,7 @@ public class ScreenshotKit: ObservableObject {
             switch keyCode {
             case .escape:
                 self?.cancelScreenshot()
-            case .return:
+            case .returnKey:
                 self?.overlayWindow?.confirmSelection()
             default:
                 break
@@ -193,7 +193,7 @@ public struct ScreenshotConfig {
     
     // 快捷键配置
     public var cancelKey: KeyCode = .escape
-    public var confirmKey: KeyCode = .return
+    public var confirmKey: KeyCode = .returnKey
     
     public init() {}
 }
