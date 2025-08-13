@@ -3,21 +3,22 @@
 import Foundation
 import AppKit
 import Combine
+import CoreGraphics
 
-/// ScreenshotKit 主要API类
+/// The main API class for ScreenshotKit.
 @MainActor
 public class ScreenshotKit: ObservableObject {
     
-    // MARK: - 单例
+    // MARK: - Singleton
     public static let shared = ScreenshotKit()
     
-    // MARK: - 配置
+    // MARK: - Configuration
     @Published public var config = ScreenshotConfig()
     
-    // MARK: - 状态
+    // MARK: - State
     @Published public private(set) var isScreenshotInProgress = false
     
-    // MARK: - 私有属性
+    // MARK: - Private Properties
     private var overlayWindow: ScreenshotOverlayWindow?
     private var keyboardMonitor: KeyboardMonitor?
     private var globalShortcutMonitor: GlobalShortcutMonitor?
@@ -27,33 +28,35 @@ public class ScreenshotKit: ObservableObject {
         setupKeyboardMonitor()
     }
     
-    // MARK: - 公共方法
+    // MARK: - Public Methods
     
-    /// 开始截图
-    /// - Parameter completion: 截图完成回调
+    /// Starts a screenshot session.
+    /// - Parameter completion: The callback with the screenshot result.
     public func startScreenshot(completion: @escaping (ScreenshotResult) -> Void) {
         guard !isScreenshotInProgress else {
             completion(ScreenshotResult.failure(.alreadyInProgress))
             return
         }
         
-        // 检查权限
-        guard checkScreenRecordingPermission() else {
-            completion(ScreenshotResult.failure(.permissionDenied))
-            return
+        Task {
+            let hasPermission = await requestPermission()
+            guard hasPermission else {
+                completion(ScreenshotResult.failure(.permissionDenied))
+                return
+            }
+
+            isScreenshotInProgress = true
+            completionHandler = completion
+
+            // Create the overlay window.
+            createOverlayWindow()
+
+            // Start monitoring keyboard events.
+            keyboardMonitor?.startMonitoring()
         }
-        
-        isScreenshotInProgress = true
-        completionHandler = completion
-        
-        // 创建遮罩窗口
-        createOverlayWindow()
-        
-        // 开始键盘监听
-        keyboardMonitor?.startMonitoring()
     }
     
-    /// 取消截图
+    /// Cancels the current screenshot session.
     public func cancelScreenshot() {
         guard isScreenshotInProgress else { return }
         
@@ -61,37 +64,37 @@ public class ScreenshotKit: ObservableObject {
         completionHandler?(ScreenshotResult.failure(.cancelled))
     }
     
-    /// 完成截图
-    /// - Parameter area: 截图区域
+    /// Completes the screenshot.
+    /// - Parameter area: The selected area to capture.
     internal func completeScreenshot(area: CGRect) {
         guard isScreenshotInProgress else { return }
         
-        // 隐藏遮罩窗口
+        // Hide the overlay window.
         overlayWindow?.orderOut(nil)
         
-        // 延迟一点时间确保窗口完全隐藏
+        // Add a short delay to ensure the window is fully hidden before capturing.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.performScreenshot(area: area)
         }
     }
     
-    /// 注册全局快捷键
-    /// - Parameter shortcut: 快捷键配置
+    /// Registers a global shortcut to trigger screenshots.
+    /// - Parameter shortcut: The keyboard shortcut to register.
     public func registerGlobalShortcut(_ shortcut: KeyboardShortcut) {
         globalShortcutMonitor?.registerShortcut(shortcut) { [weak self] in
             self?.startScreenshot { result in
-                // 默认处理，可以通过delegate模式扩展
+                // Default handling. This can be extended via a delegate pattern.
                 print("Screenshot result: \(result)")
             }
         }
     }
     
-    /// 注销全局快捷键
+    /// Unregisters the global shortcut.
     public func unregisterGlobalShortcut() {
         globalShortcutMonitor?.unregisterShortcut()
     }
     
-    // MARK: - 私有方法
+    // MARK: - Private Methods
     
     private func setupKeyboardMonitor() {
         keyboardMonitor = KeyboardMonitor { [weak self] keyCode in
@@ -109,7 +112,7 @@ public class ScreenshotKit: ObservableObject {
     }
     
     private func createOverlayWindow() {
-        // 获取所有屏幕的联合区域
+        // Get the union of all screen frames.
         let combinedFrame = NSScreen.screens.reduce(CGRect.zero) { result, screen in
             return result.union(screen.frame)
         }
@@ -130,12 +133,12 @@ public class ScreenshotKit: ObservableObject {
         do {
             let image = try ScreenCapture.captureArea(area)
             
-            // 自动复制到剪贴板
+            // Automatically copy the image to the clipboard.
             if config.autoCopyToClipboard {
                 ClipboardHelper.copyImage(image)
             }
             
-            // 自动保存到文件
+            // Automatically save the image to a file.
             var filePath: URL?
             if config.autoSaveToFile, let saveDirectory = config.saveDirectory {
                 filePath = try ImageProcessor.saveImage(
@@ -168,37 +171,47 @@ public class ScreenshotKit: ObservableObject {
         completionHandler = nil
     }
     
-    private func checkScreenRecordingPermission() -> Bool {
-        // 检查屏幕录制权限
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false]
-        return AXIsProcessTrustedWithOptions(options)
+    /// Requests screen recording permission.
+    /// - Returns: A boolean indicating whether the permission is granted.
+    public func requestPermission() async -> Bool {
+        if hasScreenRecordingPermission() {
+            return true
+        }
+
+        return CGRequestScreenCaptureAccess()
+    }
+
+    /// Checks if the user has granted screen recording permission.
+    /// - Returns: A boolean indicating whether the permission is granted.
+    public func hasScreenRecordingPermission() -> Bool {
+        return CGPreflightScreenCaptureAccess()
     }
 }
 
-// MARK: - 配置结构体
+// MARK: - Configuration Struct
 public struct ScreenshotConfig {
-    // UI配置
+    // UI Configuration
     public var overlayColor: NSColor = NSColor.black.withAlphaComponent(0.3)
     public var selectionBorderColor: NSColor = .systemBlue
     public var selectionBorderWidth: CGFloat = 2.0
     public var showCrosshairCursor: Bool = true
     public var showDimensions: Bool = true
     
-    // 行为配置
+    // Behavior Configuration
     public var autoCopyToClipboard: Bool = true
     public var autoSaveToFile: Bool = false
     public var saveDirectory: URL?
     public var imageFormat: ImageFormat = .png
     public var imageQuality: Float = 1.0
     
-    // 快捷键配置
+    // Shortcut Configuration
     public var cancelKey: KeyCode = .escape
     public var confirmKey: KeyCode = .returnKey
     
     public init() {}
 }
 
-// MARK: - 结果类型
+// MARK: - Result Type
 public struct ScreenshotResult {
     public let image: NSImage?
     public let area: CGRect
@@ -230,7 +243,7 @@ public struct ScreenshotResult {
     }
 }
 
-// MARK: - 错误类型
+// MARK: - Error Type
 public enum ScreenshotError: Error, LocalizedError {
     case permissionDenied
     case captureFailure(Error)
@@ -254,7 +267,7 @@ public enum ScreenshotError: Error, LocalizedError {
     }
 }
 
-// MARK: - 支持类型
+// MARK: - Supporting Types
 public enum ImageFormat {
     case png
     case jpeg

@@ -4,11 +4,11 @@ import Foundation
 import AppKit
 import CoreGraphics
 
-/// 屏幕捕获核心类
+/// Core class for screen capture.
 public class ScreenCapture {
     
-    /// 捕获整个屏幕
-    /// - Returns: 屏幕截图
+    /// Captures the entire screen.
+    /// - Returns: An NSImage of the screen.
     public static func captureScreen() throws -> NSImage {
         let displayID = CGMainDisplayID()
         guard let cgImage = CGDisplayCreateImage(displayID) else {
@@ -19,17 +19,17 @@ public class ScreenCapture {
         return NSImage(cgImage: cgImage, size: size)
     }
     
-    /// 捕获指定区域
-    /// - Parameter rect: 捕获区域
-    /// - Returns: 区域截图
+    /// Captures a specific area of the screen.
+    /// - Parameter rect: The area to capture.
+    /// - Returns: An NSImage of the specified area.
     public static func captureArea(_ rect: CGRect) throws -> NSImage {
         let fullImage = try captureScreen()
         return try cropImage(fullImage, to: rect)
     }
     
-    /// 捕获指定屏幕
-    /// - Parameter screen: 目标屏幕
-    /// - Returns: 屏幕截图
+    /// Captures a specific screen.
+    /// - Parameter screen: The target screen to capture.
+    /// - Returns: An NSImage of the screen.
     public static func captureScreen(_ screen: NSScreen) throws -> NSImage {
         let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID
         guard let cgImage = CGDisplayCreateImage(displayID) else {
@@ -40,17 +40,17 @@ public class ScreenCapture {
         return NSImage(cgImage: cgImage, size: size)
     }
     
-    /// 裁剪图片
+    /// Crops an image to a specified rectangle.
     /// - Parameters:
-    ///   - image: 原始图片
-    ///   - rect: 裁剪区域
-    /// - Returns: 裁剪后的图片
+    ///   - image: The original image.
+    ///   - rect: The rectangle to crop to.
+    /// - Returns: The cropped image.
     private static func cropImage(_ image: NSImage, to rect: CGRect) throws -> NSImage {
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw ScreenshotError.captureFailure(NSError(domain: "ScreenCapture", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to get CGImage"]))
         }
         
-        // 转换坐标系（macOS坐标系原点在左下角）
+        // Convert coordinate system (macOS origin is at the bottom-left).
         let flippedRect = CGRect(
             x: rect.origin.x,
             y: CGFloat(cgImage.height) - rect.origin.y - rect.height,
