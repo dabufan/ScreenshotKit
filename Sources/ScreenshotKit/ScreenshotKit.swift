@@ -271,7 +271,7 @@ public enum ImageFormat {
 
 public enum KeyCode: UInt16 {
     case escape = 53
-    case return = 36
+    case returnKey = 36
     case space = 49
     case four = 21
 }
