@@ -1,0 +1,29 @@
+# Xcode
+*.xcodeproj
+*.xcworkspace
+.DS_Store
+build/
+DerivedData/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+*.xcodeproj
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Log files
+*.log
