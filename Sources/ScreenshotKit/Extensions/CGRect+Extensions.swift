@@ -5,7 +5,7 @@ import Foundation
 extension CGRect {
     
     /// 是否为空矩形
-    var isEmpty: Bool {
+    var isRectEmpty: Bool {
         return width <= 0 || height <= 0
     }
     

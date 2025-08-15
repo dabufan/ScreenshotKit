@@ -25,7 +25,8 @@ class ScreenshotOverlayWindow: NSWindow {
     }
     
     private func setupWindow() {
-        level = .screenSaver + 1
+        // 设置窗口层级，确保显示在最前面
+        level = .screenSaver + 100
         backgroundColor = config.overlayColor
         isOpaque = false
         hasShadow = false
@@ -36,6 +37,10 @@ class ScreenshotOverlayWindow: NSWindow {
         if config.showCrosshairCursor {
             NSCursor.crosshair.set()
         }
+        
+        // 设置窗口属性
+        isMovable = false
+        isReleasedWhenClosed = false
     }
     
     private func setupSelectionView() {
@@ -57,8 +62,18 @@ class ScreenshotOverlayWindow: NSWindow {
             ScreenshotKit.shared.cancelScreenshot()
         case 36: // Return
             confirmSelection()
+        case 49: // Space
+            confirmSelection()
         default:
             super.keyDown(with: event)
         }
+    }
+    
+    override func performClose(_ sender: Any?) {
+        ScreenshotKit.shared.cancelScreenshot()
+    }
+    
+    override func close() {
+        super.close()
     }
 }

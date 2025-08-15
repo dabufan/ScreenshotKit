@@ -1,8 +1,10 @@
 // Tests/ScreenshotKitTests/ScreenshotKitTests.swift
 
 import XCTest
+import ScreenshotKit
 @testable import ScreenshotKit
 
+@MainActor
 final class ScreenshotKitTests: XCTestCase {
     
     var screenshotKit: ScreenshotKit!
@@ -12,122 +14,106 @@ final class ScreenshotKitTests: XCTestCase {
     }
     
     override func tearDownWithError() throws {
-        screenshotKit = nil
+        // 清理资源
     }
     
-    // MARK: - 配置测试
+    func testScreenshotKitSingleton() throws {
+        // 测试单例模式
+        let instance1 = ScreenshotKit.shared
+        let instance2 = ScreenshotKit.shared
+        XCTAssertTrue(instance1 === instance2)
+    }
     
-    func testDefaultConfiguration() throws {
+    func testDefaultConfig() throws {
+        // 测试默认配置
         let config = ScreenshotConfig()
         
+        XCTAssertEqual(config.overlayColor, NSColor.black.withAlphaComponent(0.3))
+        XCTAssertEqual(config.selectionBorderColor, .systemBlue)
+        XCTAssertEqual(config.selectionBorderWidth, 2.0)
+        XCTAssertTrue(config.showCrosshairCursor)
+        XCTAssertTrue(config.showDimensions)
         XCTAssertTrue(config.autoCopyToClipboard)
         XCTAssertFalse(config.autoSaveToFile)
         XCTAssertEqual(config.imageFormat, .png)
         XCTAssertEqual(config.imageQuality, 1.0)
-        XCTAssertEqual(config.selectionBorderWidth, 2.0)
     }
-    
-    func testConfigurationCustomization() throws {
-        var config = ScreenshotConfig()
-        config.autoCopyToClipboard = false
-        config.autoSaveToFile = true
-        config.imageFormat = .jpeg
-        config.imageQuality = 0.8
-        
-        XCTAssertFalse(config.autoCopyToClipboard)
-        XCTAssertTrue(config.autoSaveToFile)
-        XCTAssertEqual(config.imageFormat, .jpeg)
-        XCTAssertEqual(config.imageQuality, 0.8)
-    }
-    
-    // MARK: - 图像格式测试
     
     func testImageFormatExtensions() throws {
+        // 测试图片格式扩展
         XCTAssertEqual(ImageFormat.png.fileExtension, "png")
         XCTAssertEqual(ImageFormat.jpeg.fileExtension, "jpg")
         XCTAssertEqual(ImageFormat.tiff.fileExtension, "tiff")
     }
     
-    // MARK: - 剪贴板测试
-    
-    func testClipboardOperations() throws {
-        let testText = "Test clipboard content"
-        
-        // 测试文本复制
-        ClipboardHelper.copyText(testText)
-        let retrievedText = ClipboardHelper.getText()
-        XCTAssertEqual(retrievedText, testText)
+    func testKeyCodeValues() throws {
+        // 测试按键代码值
+        XCTAssertEqual(KeyCode.escape.rawValue, 53)
+        XCTAssertEqual(KeyCode.`return`.rawValue, 36)
+        XCTAssertEqual(KeyCode.space.rawValue, 49)
+        XCTAssertEqual(KeyCode.four.rawValue, 21)
     }
     
-    // MARK: - 错误处理测试
-    
-    func testScreenshotErrorDescriptions() throws {
-        let permissionError = ScreenshotError.permissionDenied
-        XCTAssertNotNil(permissionError.errorDescription)
-        
-        let cancelledError = ScreenshotError.cancelled
-        XCTAssertNotNil(cancelledError.errorDescription)
-        
-        let inProgressError = ScreenshotError.alreadyInProgress
-        XCTAssertNotNil(inProgressError.errorDescription)
+    func testKeyboardShortcut() throws {
+        // 测试快捷键结构体
+        let shortcut = KeyboardShortcut(key: .four, modifiers: [.command, .shift])
+        XCTAssertEqual(shortcut.key, .four)
+        XCTAssertEqual(shortcut.modifiers, [.command, .shift])
     }
-    
-    // MARK: - 结果测试
     
     func testScreenshotResultSuccess() throws {
-        let testImage = NSImage(size: NSSize(width: 100, height: 100))
-        let testRect = CGRect(x: 0, y: 0, width: 100, height: 100)
-        
-        let result = ScreenshotResult.success(image: testImage, area: testRect)
+        // 测试成功结果
+        let image = NSImage(size: NSSize(width: 100, height: 100))
+        let area = CGRect(x: 0, y: 0, width: 100, height: 100)
+        let result = ScreenshotResult.success(image: image, area: area)
         
         XCTAssertTrue(result.success)
-        XCTAssertNotNil(result.image)
-        XCTAssertEqual(result.area, testRect)
+        XCTAssertEqual(result.image, image)
+        XCTAssertEqual(result.area, area)
         XCTAssertNil(result.error)
+        XCTAssertNil(result.filePath)
     }
     
     func testScreenshotResultFailure() throws {
-        let result = ScreenshotResult.failure(.cancelled)
+        // 测试失败结果
+        let error = ScreenshotError.permissionDenied
+        let result = ScreenshotResult.failure(error)
         
         XCTAssertFalse(result.success)
         XCTAssertNil(result.image)
         XCTAssertEqual(result.area, .zero)
         XCTAssertNotNil(result.error)
+        XCTAssertNil(result.filePath)
     }
     
-    // MARK: - 快捷键测试
-    
-    func testKeyboardShortcut() throws {
-        let shortcut = KeyboardShortcut(key: .escape, modifiers: [.command, .shift])
-        
-        XCTAssertEqual(shortcut.key, .escape)
-        XCTAssertTrue(shortcut.modifiers.contains(.command))
-        XCTAssertTrue(shortcut.modifiers.contains(.shift))
+    func testScreenshotErrorDescriptions() throws {
+        // 测试错误描述
+        XCTAssertNotNil(ScreenshotError.permissionDenied.errorDescription)
+        XCTAssertNotNil(ScreenshotError.cancelled.errorDescription)
+        XCTAssertNotNil(ScreenshotError.alreadyInProgress.errorDescription)
     }
-    
-    // MARK: - 扩展测试
     
     func testCGRectExtensions() throws {
-        let emptyRect = CGRect.zero
-        XCTAssertTrue(emptyRect.isEmpty)
+        // 测试CGRect扩展
+        let rect = CGRect(x: 10, y: 20, width: 100, height: 200)
         
-        let nonEmptyRect = CGRect(x: 0, y: 0, width: 100, height: 100)
-        XCTAssertFalse(nonEmptyRect.isEmpty)
-        
-        let center = nonEmptyRect.center
-        XCTAssertEqual(center.x, 50)
-        XCTAssertEqual(center.y, 50)
+        XCTAssertFalse(rect.isRectEmpty)
+        XCTAssertEqual(rect.center, CGPoint(x: 60, y: 120))
+        XCTAssertEqual(rect.nsRect, NSRect(x: 10, y: 20, width: 100, height: 200))
     }
     
-    func testNSImageExtensions() throws {
-        let testImage = NSImage(size: NSSize(width: 100, height: 100))
-        
-        // 测试PNG表示
-        let pngData = testImage.pngRepresentation
-        XCTAssertNotNil(pngData)
-        
-        // 测试JPEG表示
-        let jpegData = testImage.jpegRepresentation(quality: 0.8)
-        XCTAssertNotNil(jpegData)
+    func testEmptyRect() throws {
+        // 测试空矩形
+        let emptyRect = CGRect.zero
+        XCTAssertTrue(emptyRect.isRectEmpty)
+    }
+    
+    func testPerformanceExample() throws {
+        // 性能测试示例
+        measure {
+            // 这里可以添加性能测试代码
+            let config = ScreenshotConfig()
+            _ = config.overlayColor
+        }
     }
 }

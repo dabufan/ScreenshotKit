@@ -98,7 +98,9 @@ public class ScreenshotKit: ObservableObject {
             switch keyCode {
             case .escape:
                 self?.cancelScreenshot()
-            case .return:
+            case .`return`:
+                self?.overlayWindow?.confirmSelection()
+            case .space:
                 self?.overlayWindow?.confirmSelection()
             default:
                 break
@@ -128,7 +130,8 @@ public class ScreenshotKit: ObservableObject {
         let result: ScreenshotResult
         
         do {
-            let image = try ScreenCapture.captureArea(area)
+            // 使用多屏幕捕获
+            let image = try ScreenCapture.captureMultiScreenArea(area)
             
             // 自动复制到剪贴板
             if config.autoCopyToClipboard {
@@ -271,7 +274,7 @@ public enum ImageFormat {
 
 public enum KeyCode: UInt16 {
     case escape = 53
-    case return = 36
+    case `return` = 36
     case space = 49
     case four = 21
 }
