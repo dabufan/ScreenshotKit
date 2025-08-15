@@ -17,14 +17,25 @@ public class ScreenshotKit: ObservableObject {
     // MARK: - 状态
     @Published public private(set) var isScreenshotInProgress = false
     
+    // 性能优化：添加性能监控
+    @Published public private(set) var lastScreenshotTime: TimeInterval = 0
+    @Published public private(set) var averageScreenshotTime: TimeInterval = 0
+    @Published public private(set) var totalScreenshots: Int = 0
+    
     // MARK: - 私有属性
     private var overlayWindow: ScreenshotOverlayWindow?
     private var keyboardMonitor: KeyboardMonitor?
     private var globalShortcutMonitor: GlobalShortcutMonitor?
     private var completionHandler: ((ScreenshotResult) -> Void)?
     
+    // 性能优化：缓存和队列管理
+    private let screenshotQueue = DispatchQueue(label: "com.screenshotkit.processing", qos: .userInitiated)
+    private var performanceMetrics: [TimeInterval] = []
+    private let maxMetricsCount = 10
+    
     private init() {
         setupKeyboardMonitor()
+        setupPerformanceMonitoring()
     }
     
     // MARK: - 公共方法
@@ -46,11 +57,22 @@ public class ScreenshotKit: ObservableObject {
         isScreenshotInProgress = true
         completionHandler = completion
         
+        // 预加载屏幕信息（性能优化）
+        ScreenCapture.preloadScreenInfo()
+        
         // 创建遮罩窗口
         createOverlayWindow()
         
         // 开始键盘监听
         keyboardMonitor?.startMonitoring()
+    }
+    
+    /// 异步开始截图（性能优化）
+    /// - Parameter completion: 截图完成回调
+    public func startScreenshotAsync(completion: @escaping (ScreenshotResult) -> Void) {
+        DispatchQueue.main.async {
+            self.startScreenshot(completion: completion)
+        }
     }
     
     /// 取消截图
@@ -66,12 +88,14 @@ public class ScreenshotKit: ObservableObject {
     internal func completeScreenshot(area: CGRect) {
         guard isScreenshotInProgress else { return }
         
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
         // 隐藏遮罩窗口
         overlayWindow?.orderOut(nil)
         
         // 延迟一点时间确保窗口完全隐藏
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.performScreenshot(area: area)
+            self?.performScreenshot(area: area, startTime: startTime)
         }
     }
     
@@ -89,6 +113,25 @@ public class ScreenshotKit: ObservableObject {
     /// 注销全局快捷键
     public func unregisterGlobalShortcut() {
         globalShortcutMonitor?.unregisterShortcut()
+    }
+    
+    /// 清理缓存（性能优化）
+    public func clearCache() {
+        ScreenCapture.clearCache()
+        ImageProcessor.clearCache()
+        performanceMetrics.removeAll()
+        averageScreenshotTime = 0
+        totalScreenshots = 0
+    }
+    
+    /// 获取性能统计（性能监控）
+    public func getPerformanceStats() -> PerformanceStats {
+        return PerformanceStats(
+            totalScreenshots: totalScreenshots,
+            averageTime: averageScreenshotTime,
+            lastTime: lastScreenshotTime,
+            cacheSize: performanceMetrics.count
+        )
     }
     
     // MARK: - 私有方法
@@ -110,6 +153,15 @@ public class ScreenshotKit: ObservableObject {
         globalShortcutMonitor = GlobalShortcutMonitor()
     }
     
+    private func setupPerformanceMonitoring() {
+        // 定期清理旧指标
+        Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.cleanupOldMetrics()
+            }
+        }
+    }
+    
     private func createOverlayWindow() {
         // 获取所有屏幕的联合区域
         let combinedFrame = NSScreen.screens.reduce(CGRect.zero) { result, screen in
@@ -126,7 +178,7 @@ public class ScreenshotKit: ObservableObject {
         overlayWindow?.makeKeyAndOrderFront(nil)
     }
     
-    private func performScreenshot(area: CGRect) {
+    private func performScreenshot(area: CGRect, startTime: CFAbsoluteTime) {
         let result: ScreenshotResult
         
         do {
@@ -159,8 +211,42 @@ public class ScreenshotKit: ObservableObject {
             result = ScreenshotResult.failure(.captureFailure(error))
         }
         
+        // 更新性能指标
+        updatePerformanceMetrics(startTime: startTime)
+        
         cleanup()
         completionHandler?(result)
+    }
+    
+    private func updatePerformanceMetrics(startTime: CFAbsoluteTime) {
+        let endTime = CFAbsoluteTimeGetCurrent()
+        let duration = endTime - startTime
+        
+        lastScreenshotTime = duration
+        totalScreenshots += 1
+        
+        // 添加到性能指标数组
+        performanceMetrics.append(duration)
+        
+        // 限制指标数量
+        if performanceMetrics.count > maxMetricsCount {
+            performanceMetrics.removeFirst()
+        }
+        
+        // 计算平均时间
+        averageScreenshotTime = performanceMetrics.reduce(0, +) / Double(performanceMetrics.count)
+    }
+    
+    private func cleanupOldMetrics() {
+        let cutoffTime = CFAbsoluteTimeGetCurrent() - 300 // 5分钟前的数据
+        performanceMetrics = performanceMetrics.filter { $0 > cutoffTime }
+        
+        // 重新计算平均值
+        if !performanceMetrics.isEmpty {
+            averageScreenshotTime = performanceMetrics.reduce(0, +) / Double(performanceMetrics.count)
+        } else {
+            averageScreenshotTime = 0
+        }
     }
     
     private func cleanup() {
@@ -194,9 +280,14 @@ public struct ScreenshotConfig {
     public var imageFormat: ImageFormat = .png
     public var imageQuality: Float = 1.0
     
+    // 性能配置
+    public var enableAsyncProcessing: Bool = true
+    public var enablePerformanceMonitoring: Bool = true
+    public var maxImageSize: NSSize = NSSize(width: 4096, height: 4096)
+    
     // 快捷键配置
     public var cancelKey: KeyCode = .escape
-    public var confirmKey: KeyCode = .return
+    public var confirmKey: KeyCode = .`return`
     
     public init() {}
 }
@@ -230,6 +321,22 @@ public struct ScreenshotResult {
             error: error,
             filePath: nil
         )
+    }
+}
+
+// MARK: - 性能统计结构体
+public struct PerformanceStats {
+    public let totalScreenshots: Int
+    public let averageTime: TimeInterval
+    public let lastTime: TimeInterval
+    public let cacheSize: Int
+    
+    public var formattedAverageTime: String {
+        return String(format: "%.3fs", averageTime)
+    }
+    
+    public var formattedLastTime: String {
+        return String(format: "%.3fs", lastTime)
     }
 }
 

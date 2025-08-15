@@ -25,12 +25,22 @@ class SelectionView: NSView {
     private var confirmButton: NSButton?
     private var cancelButton: NSButton?
     
+    // 性能优化：缓存绘制对象
+    private var cachedAttributedString: NSAttributedString?
+    private var cachedTextSize: CGSize = .zero
+    private var lastSelectionRect: CGRect = .zero
+    
+    // UI改进：动画支持
+    private var animationLayer: CALayer?
+    private var isAnimating: Bool = false
+    
     init(frame: NSRect, config: ScreenshotConfig, completion: @escaping (CGRect) -> Void) {
         self.config = config
         self.completionHandler = completion
         super.init(frame: frame)
         
         setupButtons()
+        setupAnimationLayer()
     }
     
     required init?(coder: NSCoder) {
@@ -38,27 +48,61 @@ class SelectionView: NSView {
     }
     
     private func setupButtons() {
-        // 确认按钮
-        confirmButton = NSButton(frame: NSRect(x: 0, y: 0, width: 60, height: 24))
+        // 确认按钮 - 改进样式
+        confirmButton = NSButton(frame: NSRect(x: 0, y: 0, width: 70, height: 28))
         confirmButton?.title = "确定"
         confirmButton?.bezelStyle = .rounded
+        confirmButton?.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        confirmButton?.contentTintColor = .white
         confirmButton?.target = self
         confirmButton?.action = #selector(confirmSelection)
         confirmButton?.isHidden = true
+        
+        // 设置按钮背景色
+        if let button = confirmButton {
+            button.wantsLayer = true
+            button.layer?.backgroundColor = NSColor.systemGreen.cgColor
+            button.layer?.cornerRadius = 6
+            button.layer?.masksToBounds = true
+        }
+        
         addSubview(confirmButton!)
         
-        // 取消按钮
-        cancelButton = NSButton(frame: NSRect(x: 0, y: 0, width: 60, height: 24))
+        // 取消按钮 - 改进样式
+        cancelButton = NSButton(frame: NSRect(x: 0, y: 0, width: 70, height: 28))
         cancelButton?.title = "取消"
         cancelButton?.bezelStyle = .rounded
+        cancelButton?.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        cancelButton?.contentTintColor = .white
         cancelButton?.target = self
         cancelButton?.action = #selector(cancelSelection)
         cancelButton?.isHidden = true
+        
+        // 设置按钮背景色
+        if let button = cancelButton {
+            button.wantsLayer = true
+            button.layer?.backgroundColor = NSColor.systemRed.cgColor
+            button.layer?.cornerRadius = 6
+            button.layer?.masksToBounds = true
+        }
+        
         addSubview(cancelButton!)
+    }
+    
+    private func setupAnimationLayer() {
+        wantsLayer = true
+        animationLayer = CALayer()
+        animationLayer?.frame = bounds
+        layer?.addSublayer(animationLayer!)
     }
     
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        
+        // 性能优化：只在需要时重绘
+        if !dirtyRect.intersects(bounds) {
+            return
+        }
         
         // 绘制遮罩
         config.overlayColor.setFill()
@@ -69,8 +113,13 @@ class SelectionView: NSView {
             drawSelection()
         } else if !selectionRect.isRectEmpty {
             drawSelection()
-            updateResizeHandles()
-            updateButtonPositions()
+            
+            // 性能优化：只在选区改变时更新手柄和按钮
+            if selectionRect != lastSelectionRect {
+                updateResizeHandles()
+                updateButtonPositions()
+                lastSelectionRect = selectionRect
+            }
         }
     }
     
@@ -79,11 +128,22 @@ class SelectionView: NSView {
         NSColor.clear.setFill()
         selectionRect.fill(using: .copy)
         
-        // 绘制选择框边框
+        // 绘制选择框边框 - 改进视觉效果
+        let borderPath = NSBezierPath(rect: selectionRect)
+        borderPath.lineWidth = config.selectionBorderWidth
+        
+        // 添加阴影效果
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        shadow.shadowBlurRadius = 2
+        shadow.set()
+        
         config.selectionBorderColor.setStroke()
-        let path = NSBezierPath(rect: selectionRect)
-        path.lineWidth = config.selectionBorderWidth
-        path.stroke()
+        borderPath.stroke()
+        
+        // 重置阴影
+        NSShadow().set()
         
         // 显示尺寸信息
         if config.showDimensions {
@@ -101,47 +161,67 @@ class SelectionView: NSView {
         let height = Int(selectionRect.height)
         let text = "\(width) × \(height)"
         
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12),
-            .foregroundColor: NSColor.white,
-            .backgroundColor: NSColor.black.withAlphaComponent(0.7)
-        ]
+        // 性能优化：缓存attributedString
+        if cachedAttributedString == nil || cachedTextSize == .zero {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: NSColor.white,
+                .backgroundColor: NSColor.black.withAlphaComponent(0.8)
+            ]
+            
+            cachedAttributedString = NSAttributedString(string: text, attributes: attributes)
+            cachedTextSize = cachedAttributedString!.size()
+        }
         
-        let attributedString = NSAttributedString(string: text, attributes: attributes)
-        let textSize = attributedString.size()
+        guard let attributedString = cachedAttributedString else { return }
         
         let textRect = CGRect(
-            x: selectionRect.maxX - textSize.width - 5,
-            y: selectionRect.minY - textSize.height - 5,
-            width: textSize.width + 10,
-            height: textSize.height + 4
+            x: selectionRect.maxX - cachedTextSize.width - 8,
+            y: selectionRect.minY - cachedTextSize.height - 8,
+            width: cachedTextSize.width + 16,
+            height: cachedTextSize.height + 8
         )
         
-        NSColor.black.withAlphaComponent(0.7).setFill()
-        textRect.fill()
+        // 改进背景样式
+        let backgroundPath = NSBezierPath(roundedRect: textRect, xRadius: 4, yRadius: 4)
+        NSColor.black.withAlphaComponent(0.8).setFill()
+        backgroundPath.fill()
         
-        attributedString.draw(at: CGPoint(x: textRect.minX + 5, y: textRect.minY + 2))
+        // 添加边框
+        NSColor.white.withAlphaComponent(0.3).setStroke()
+        backgroundPath.lineWidth = 0.5
+        backgroundPath.stroke()
+        
+        attributedString.draw(at: CGPoint(x: textRect.minX + 8, y: textRect.minY + 4))
     }
     
     private func drawResizeHandles() {
         let handleColor = NSColor.white
         let handleBorderColor = config.selectionBorderColor
         
-        for handle in resizeHandles {
-            // 绘制手柄背景
-            handleColor.setFill()
-            handle.fill()
+        for (_, handle) in resizeHandles.enumerated() {
+            // 绘制手柄背景 - 改进样式
+            let handlePath = NSBezierPath(ovalIn: handle)
+            
+            // 添加渐变效果
+            let gradient = NSGradient(colors: [handleColor, handleColor.withAlphaComponent(0.9)])
+            gradient?.draw(in: handlePath, angle: 45)
             
             // 绘制手柄边框
             handleBorderColor.setStroke()
-            let path = NSBezierPath(rect: handle)
-            path.lineWidth = 1
-            path.stroke()
+            handlePath.lineWidth = 1.5
+            handlePath.stroke()
+            
+            // 添加中心点
+            let centerPoint = CGPoint(x: handle.midX, y: handle.midY)
+            let centerPath = NSBezierPath(ovalIn: CGRect(x: centerPoint.x - 1, y: centerPoint.y - 1, width: 2, height: 2))
+            NSColor.black.withAlphaComponent(0.6).setFill()
+            centerPath.fill()
         }
     }
     
     private func updateResizeHandles() {
-        let handleSize: CGFloat = 8
+        let handleSize: CGFloat = 10
         let halfHandle = handleSize / 2
         
         resizeHandles = [
@@ -167,29 +247,36 @@ class SelectionView: NSView {
     private func updateButtonPositions() {
         guard let confirmButton = confirmButton, let cancelButton = cancelButton else { return }
         
-        let buttonWidth: CGFloat = 60
-        let buttonHeight: CGFloat = 24
-        let buttonSpacing: CGFloat = 10
+        let buttonWidth: CGFloat = 70
+        let buttonHeight: CGFloat = 28
+        let buttonSpacing: CGFloat = 12
         let totalWidth = buttonWidth * 2 + buttonSpacing
         
-        let buttonY = selectionRect.minY - buttonHeight - 10
+        let buttonY = selectionRect.minY - buttonHeight - 15
         
-        confirmButton.frame = NSRect(
-            x: selectionRect.midX - totalWidth / 2,
-            y: buttonY,
-            width: buttonWidth,
-            height: buttonHeight
-        )
-        
-        cancelButton.frame = NSRect(
-            x: selectionRect.midX + totalWidth / 2 - buttonWidth,
-            y: buttonY,
-            width: buttonWidth,
-            height: buttonHeight
-        )
-        
-        confirmButton.isHidden = false
-        cancelButton.isHidden = false
+        // 添加动画效果
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            
+            confirmButton.animator().frame = NSRect(
+                x: selectionRect.midX - totalWidth / 2,
+                y: buttonY,
+                width: buttonWidth,
+                height: buttonHeight
+            )
+            
+            cancelButton.animator().frame = NSRect(
+                x: selectionRect.midX + totalWidth / 2 - buttonWidth,
+                y: buttonY,
+                width: buttonWidth,
+                height: buttonHeight
+            )
+        }) {
+            // 动画完成后显示按钮
+            confirmButton.isHidden = false
+            cancelButton.isHidden = false
+        }
     }
     
     // MARK: - 鼠标事件
@@ -209,6 +296,9 @@ class SelectionView: NSView {
                 isResizing = true
                 dragStartPoint = location
                 originalSelectionRect = selectionRect
+                
+                // 添加视觉反馈
+                NSCursor.crosshair.set()
                 return
             }
             
@@ -217,6 +307,9 @@ class SelectionView: NSView {
                 isDragging = true
                 dragStartPoint = location
                 originalSelectionRect = selectionRect
+                
+                // 添加视觉反馈
+                NSCursor.openHand.set()
                 return
             }
             
@@ -227,6 +320,10 @@ class SelectionView: NSView {
             selectionRect = .zero
             confirmButton?.isHidden = true
             cancelButton?.isHidden = true
+            
+            // 清除缓存
+            cachedAttributedString = nil
+            cachedTextSize = .zero
         } else {
             // 开始选择
             startPoint = location
@@ -258,12 +355,17 @@ class SelectionView: NSView {
             if !selectionRect.isRectEmpty {
                 updateResizeHandles()
                 updateButtonPositions()
+                
+                // 添加选区确认动画
+                animateSelectionConfirmation()
             }
         } else if isResizing {
             isResizing = false
             activeHandle = -1
+            NSCursor.crosshair.set()
         } else if isDragging {
             isDragging = false
+            NSCursor.crosshair.set()
         }
         
         needsDisplay = true
@@ -343,7 +445,7 @@ class SelectionView: NSView {
         }
         
         // 确保选区不会太小
-        if newRect.width >= 10 && newRect.height >= 10 {
+        if newRect.width >= 20 && newRect.height >= 20 {
             selectionRect = newRect
         }
     }
@@ -367,15 +469,51 @@ class SelectionView: NSView {
         selectionRect.size.height = maxY - minY
     }
     
+    private func animateSelectionConfirmation() {
+        guard !isAnimating else { return }
+        isAnimating = true
+        
+        // 创建确认动画
+        let animation = CABasicAnimation(keyPath: "transform.scale")
+        animation.fromValue = 1.0
+        animation.toValue = 1.05
+        animation.duration = 0.15
+        animation.autoreverses = true
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        
+        animationLayer?.add(animation, forKey: "selectionConfirmation")
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.isAnimating = false
+        }
+    }
+    
     // MARK: - 公共方法
     
     @objc func confirmSelection() {
         if !selectionRect.isRectEmpty {
-            completionHandler(selectionRect)
+            // 添加确认动画
+            animateConfirmation()
+            
+            // 延迟执行回调，让动画完成
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.completionHandler(self?.selectionRect ?? .zero)
+            }
         }
     }
     
     @objc func cancelSelection() {
         ScreenshotKit.shared.cancelScreenshot()
+    }
+    
+    private func animateConfirmation() {
+        // 创建确认动画
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 1.0
+        animation.toValue = 0.0
+        animation.duration = 0.3
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        
+        layer?.add(animation, forKey: "fadeOut")
     }
 }

@@ -7,6 +7,14 @@ import CoreGraphics
 /// 屏幕捕获核心类
 public class ScreenCapture {
     
+    // 性能优化：缓存屏幕信息
+    private static var cachedScreens: [NSScreen] = []
+    private static var lastScreenUpdate: Date = Date.distantPast
+    private static let screenCacheTimeout: TimeInterval = 5.0 // 5秒缓存
+    
+    // 性能优化：缓存显示ID
+    private static var displayIDCache: [NSScreen: CGDirectDisplayID] = [:]
+    
     /// 捕获整个屏幕
     /// - Returns: 屏幕截图
     public static func captureScreen() throws -> NSImage {
@@ -28,7 +36,7 @@ public class ScreenCapture {
             throw ScreenshotError.captureFailure(NSError(domain: "ScreenCapture", code: 5, userInfo: [NSLocalizedDescriptionKey: "No main screen found"]))
         }
         
-        let displayID = mainScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID
+        let displayID = getDisplayID(for: mainScreen)
         
         guard let cgImage = CGDisplayCreateImage(displayID) else {
             throw ScreenshotError.captureFailure(NSError(domain: "ScreenCapture", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to capture specific screen"]))
@@ -54,7 +62,7 @@ public class ScreenCapture {
     /// - Parameter screen: 目标屏幕
     /// - Returns: 屏幕截图
     public static func captureScreen(_ screen: NSScreen) throws -> NSImage {
-        let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID
+        let displayID = getDisplayID(for: screen)
         
         guard let cgImage = CGDisplayCreateImage(displayID) else {
             throw ScreenshotError.captureFailure(NSError(domain: "ScreenCapture", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to capture specific screen"]))
@@ -68,8 +76,8 @@ public class ScreenCapture {
     /// - Parameter rect: 捕获区域（全局坐标系）
     /// - Returns: 区域截图
     public static func captureMultiScreenArea(_ rect: CGRect) throws -> NSImage {
-        // 获取所有屏幕
-        let screens = NSScreen.screens
+        // 性能优化：使用缓存的屏幕信息
+        let screens = getCachedScreens()
         guard !screens.isEmpty else {
             throw ScreenshotError.captureFailure(NSError(domain: "ScreenCapture", code: 6, userInfo: [NSLocalizedDescriptionKey: "No screens found"]))
         }
@@ -106,6 +114,25 @@ public class ScreenCapture {
         return try mergeImages(capturedImages, in: rect)
     }
     
+    /// 异步捕获多屏幕区域（性能优化）
+    /// - Parameters:
+    ///   - rect: 捕获区域
+    ///   - completion: 完成回调
+    public static func captureMultiScreenAreaAsync(_ rect: CGRect, completion: @escaping (Result<NSImage, Error>) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let image = try captureMultiScreenArea(rect)
+                DispatchQueue.main.async {
+                    completion(.success(image))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+    
     /// 合并多张图片
     /// - Parameters:
     ///   - images: 图片数组
@@ -123,5 +150,48 @@ public class ScreenCapture {
         mergedImage.unlockFocus()
         
         return mergedImage
+    }
+    
+    // MARK: - 性能优化方法
+    
+    /// 获取缓存的屏幕信息
+    private static func getCachedScreens() -> [NSScreen] {
+        let now = Date()
+        
+        // 检查缓存是否过期
+        if now.timeIntervalSince(lastScreenUpdate) > screenCacheTimeout {
+            cachedScreens = NSScreen.screens
+            lastScreenUpdate = now
+        }
+        
+        return cachedScreens
+    }
+    
+    /// 获取屏幕的显示ID（带缓存）
+    private static func getDisplayID(for screen: NSScreen) -> CGDirectDisplayID {
+        // 检查缓存
+        if let cachedID = displayIDCache[screen] {
+            return cachedID
+        }
+        
+        // 获取显示ID
+        let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID
+        
+        // 缓存结果
+        displayIDCache[screen] = displayID
+        
+        return displayID
+    }
+    
+    /// 清理缓存
+    public static func clearCache() {
+        cachedScreens.removeAll()
+        displayIDCache.removeAll()
+        lastScreenUpdate = Date.distantPast
+    }
+    
+    /// 预加载屏幕信息（性能优化）
+    public static func preloadScreenInfo() {
+        _ = getCachedScreens()
     }
 }
